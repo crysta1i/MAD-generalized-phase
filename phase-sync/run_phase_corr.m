@@ -14,8 +14,9 @@ cur_letter = "N";
 average_across_trials = true;
 
 addpath('/media/Data/Human_Intracranial_MAD/analysis/TravWaves/Code')
+addpath('/media/Data/Human_Intracranial_MAD/analysis/TravWaves/Code/phase-sync/')
 addpath('/media/Data/Human_Intracranial_MAD/analysis/TravWaves/Code/ERP')
-addpath('/media/Data/Human_Intracranial_MAD/analysis/PAC_code/CF_Coupling/generalized phase')
+% addpath('/media/Data/Human_Intracranial_MAD/analysis/PAC_code/CF_Coupling/generalized phase')
 [datapath, data_base_dir, tw_out_dir, out_dir, num_sessions, Fs, elec_letters] = tw_setup(subject_ID, reference);
 [cur_elec_contact_ind, cur_elec_contact_names] = get_single_probe_contacts(reference, subject_ID, cur_letter);
 [wm_gm_chunks, chunk_names, chunk_areas] = gm_wm_chunking(subject_ID, reference, cur_letter);
@@ -121,8 +122,123 @@ for alignment = ["first_unique_attribute", "second_unique_attribute","third_uniq
     end
     if ~exist(save_dir, 'dir'), mkdir(save_dir); end
 
+    % allses_angle_cts shape/size: (n_timepoints, n_contacts, n_trials)
     allses_angle_cts = compute_angle_ts(subject_ID, reference, cur_letter, ch_nums, alignment, subwin_st, subwin_end);
     [cur_chunk_corr, cur_chunk_pv] = phase_dist_corr(ch_nums, subwin_st, subwin_end, allses_angle_cts);
+
+    % %%% More fine-grained analysis on nature of circular-linear correlations %%%
+    % 6/7/26 -- in progress
+    % TODO: establish directory for saving figures
+    % 1. Single trial circle plots
+    sample_events = [5 45 85 125 165 205];
+    for event = sample_events
+        event_angle_data = allses_angle_cts(:, :, event); % (n_timepts, n_contacts, 1)
+        % create a dedicated directory for this event
+        event_dir = sprintf("%s/phase_angle_plots/trial%d", save_dir, event);
+        if ~exist(event_dir, 'dir'), mkdir(event_dir); end
+        for time = 3:3:size(event_angle_data, 1)
+            fgt = figure;
+            cur_time_angles = event_angle_data(time, :);
+
+
+            hold on;
+            t = linspace(0, 2*pi, 400);
+            plot(cos(t), sin(t), 'k-', 'LineWidth', 1);  % circle outline
+
+            % Convert angles to unit-circle coordinates
+            X = cos(cur_time_angles(:));
+            Y = sin(cur_time_angles(:));
+
+            % Color goes from blue (early) to red (late)
+            n = numel(cur_time_angles);
+            c = linspace(0, 1, n)';
+
+            scatter(X, Y, 60, c, 'filled');
+            axis equal;
+            xlim([-1.1 1.1]);
+            ylim([-1.1 1.1]);
+            xlabel('cos(\theta)');
+            ylabel('sin(\theta)');
+            title(sprintf("Phase angles at time %d - Probe %s", time, cur_letter));
+            grid off;
+
+            nColor = 256;
+            half = nColor/2;
+
+            blueToWhite = [linspace(0,1,half)', linspace(0,1,half)', ones(half,1)];
+            whiteToRed = [ones(half,1), linspace(1,0,half)', linspace(1,0,half)'];
+            bwrMap = [blueToWhite; whiteToRed];
+            colormap(bwrMap);
+
+            % Colorbar
+            cb = colorbar;
+            clim([0 1]);
+            cb.Ticks = [0 1];
+            cb.TickLabels = {'lateral', 'medial'};
+
+            % Optional: make the colorbar correspond nicely to the scatter colors
+            clim([0 1]);
+            hold off;
+
+            fname = sprintf("%s/timepoint_%d.jpg", event_dir, time);
+            print(fgt, '-djpeg', fname);
+            close;
+        end
+    end
+
+    % 2. trial-average
+    phase_trialavg_dir = sprintf("%s/phase_angle_plots/trial_avg", save_dir);
+    if ~exist(phase_trialavg_dir, 'dir'), mkdir(phase_trialavg_dir); end
+    for time = 3:3:size(allses_angle_cts, 1)
+        fgt = figure;
+        cur_time_data = allses_angle_cts(time, :, :); % (1, n_channels, n_trials)
+        eulerized = exp(cur_time_data .* 1i);
+        cur_time_avg_angles = angle(mean(squeeze(eulerized), 2)); % sum along the rows 
+
+        hold on;
+        t = linspace(0, 2*pi, 400);
+        plot(cos(t), sin(t), 'k-', 'LineWidth', 1);  % circle outline
+
+        % Convert angles to unit-circle coordinates
+        X = cos(cur_time_avg_angles(:));
+        Y = sin(cur_time_avg_angles(:));
+
+        % Color goes from blue (early) to red (late)
+        n = numel(cur_time_avg_angles);
+        c = linspace(0, 1, n)';
+
+        scatter(X, Y, 60, c, 'filled');
+        axis equal;
+        xlim([-1.1 1.1]);
+        ylim([-1.1 1.1]);
+        xlabel('cos(\theta)');
+        ylabel('sin(\theta)');
+        title(sprintf("Phase angles at time %d - Probe %s", time, cur_letter));
+        grid off;
+
+        nColor = 256;
+        half = nColor/2;
+
+        blueToWhite = [linspace(0,1,half)', linspace(0,1,half)', ones(half,1)];
+        whiteToRed = [ones(half,1), linspace(1,0,half)', linspace(1,0,half)'];
+        bwrMap = [blueToWhite; whiteToRed];
+        colormap(bwrMap);
+
+        % Colorbar
+        cb = colorbar;
+        clim([0 1]);
+        cb.Ticks = [0 1];
+        cb.TickLabels = {'lateral', 'medial'};
+
+        % Optional: make the colorbar correspond nicely to the scatter colors
+        clim([0 1]);
+        hold off;
+
+        fname = sprintf("%s/timepoint_%d.jpg", phase_trialavg_dir, time);
+        print(fgt, '-djpeg', fname);
+        close;
+    end
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
     area = probe_subset;
     if average_across_trials
